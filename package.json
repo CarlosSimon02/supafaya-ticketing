@@ -3,9 +3,11 @@
   "private": true,
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev",
+    "dev": "turbo run dev --scope=\"@supafaya-ticketing/web\"",
     "lint": "turbo lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "web": "yarn workspace @supafaya-ticketing/web",
+    "api": "yarn workspace @supafaya-ticketing/api"
   },
   "devDependencies": {
     "prettier": "^3.2.5",
