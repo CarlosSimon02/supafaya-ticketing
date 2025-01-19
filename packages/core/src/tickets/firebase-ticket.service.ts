@@ -17,13 +17,17 @@ import {
   TicketApprovalStatus,
 } from './types';
 import { ITicketService } from './ticket.service';
+import { IPaymentService, PaymentStatus } from '../payments';
 
 export class FirebaseTicketService implements ITicketService {
   private readonly ticketTypesCollection = 'ticketTypes';
   private readonly ticketsCollection = 'tickets';
   private readonly reservationExpiryMinutes = 15; // 15 minutes to complete purchase
 
-  constructor(private firestore: Firestore) {}
+  constructor(
+    private firestore: Firestore,
+    private paymentService: IPaymentService
+  ) {}
 
   private async getTicketTypeDoc(ticketTypeId: string) {
     const doc = await this.firestore.collection(this.ticketTypesCollection).doc(ticketTypeId).get();
@@ -194,8 +198,59 @@ export class FirebaseTicketService implements ITicketService {
   }
 
   async purchaseTickets(customerId: string, request: PurchaseTicketRequest): Promise<Ticket[]> {
-    // TODO: Implement when adding payment integration
-    throw new Error('Method not implemented.');
+    const batch = this.firestore.batch();
+    try {
+      // Get the reservation
+      const doc = await this.getTicketDoc(request.reservationId);
+      const ticket = this.convertToTicket(doc);
+
+      // Validate reservation
+      if (ticket.status !== TicketStatus.RESERVED) {
+        throw new TicketError('Ticket is not reserved', 'ticket/invalid-status');
+      }
+      if (ticket.customerId !== customerId) {
+        throw new TicketError('Unauthorized purchase', 'ticket/unauthorized');
+      }
+
+      // Check if ticket requires payment
+      if (ticket.price.amount > 0) {
+        // Create payment
+        const payment = await this.paymentService.createPayment({
+          amount: ticket.price.amount,
+          currency: ticket.price.currency,
+          customerId: ticket.customerId,
+          customerEmail: ticket.customerEmail,
+          metadata: {
+            ticketId: ticket.id,
+            eventId: ticket.eventId,
+            ticketTypeId: ticket.ticketTypeId,
+          },
+        });
+
+        // Update ticket with payment info
+        await doc.ref.update({
+          paymentId: payment.id,
+          paymentStatus: payment.status,
+          updatedAt: Timestamp.now(),
+        });
+
+        // Return the payment ID to the client for processing
+        return [{ ...ticket, paymentId: payment.id }] as Ticket[];
+      }
+
+      // For free tickets, mark as purchased immediately
+      const now = Timestamp.now();
+      await doc.ref.update({
+        status: TicketStatus.SOLD,
+        purchasedAt: now,
+        updatedAt: now,
+      });
+
+      return [ticket];
+    } catch (error: any) {
+      if (error instanceof TicketError) throw error;
+      throw new TicketError('Failed to purchase tickets', 'ticket/purchase-failed', error);
+    }
   }
 
   async cancelReservation(customerId: string, reservationId: string): Promise<void> {
@@ -429,6 +484,38 @@ export class FirebaseTicketService implements ITicketService {
       await batch.commit();
     } catch (error: any) {
       throw new TicketError('Failed to cleanup expired reservations', 'ticket/cleanup-failed', error);
+    }
+  }
+
+  // Add method to handle payment webhook
+  async handlePaymentWebhook(paymentId: string, status: PaymentStatus): Promise<void> {
+    try {
+      const snapshot = await this.firestore
+        .collection(this.ticketsCollection)
+        .where('paymentId', '==', paymentId)
+        .limit(1)
+        .get();
+
+      const doc = snapshot.docs[0];
+      if (doc) {
+        const now = Timestamp.now();
+        const updates: any = {
+          paymentStatus: status,
+          updatedAt: now,
+        };
+
+        if (status === PaymentStatus.COMPLETED) {
+          updates.status = TicketStatus.SOLD;
+          updates.purchasedAt = now;
+        } else if (status === PaymentStatus.FAILED || status === PaymentStatus.CANCELLED) {
+          updates.status = TicketStatus.CANCELLED;
+          updates.cancelledAt = now;
+        }
+
+        await doc.ref.update(updates);
+      }
+    } catch (error: any) {
+      throw new TicketError('Failed to handle payment webhook', 'ticket/webhook-failed', error);
     }
   }
 } 
