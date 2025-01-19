@@ -79,8 +79,54 @@ export class FirebaseTicketService implements ITicketService {
       throw new TicketError('Event not found', 'ticket/event-not-found');
     }
 
-    if (eventDoc.data()?.organizerId !== organizerId) {
+    const eventData = eventDoc.data()!;
+
+    // Check if organizer owns the event
+    if (eventData.organizerId !== organizerId) {
       throw new TicketError('Unauthorized: Not the event organizer', 'ticket/unauthorized');
+    }
+
+    // Check if event is active
+    const now = new Date();
+    const endDateTime = eventData.endDateTime?.toDate();
+    if (endDateTime && endDateTime < now) {
+      throw new TicketError('Event has ended', 'ticket/event-ended');
+    }
+
+    // Check if event is published/visible
+    if (eventData.visibility === 'PRIVATE' && !eventData.isPublished) {
+      throw new TicketError('Event is not published', 'ticket/event-not-published');
+    }
+
+    // Check if ticket sales are allowed
+    const startDateTime = eventData.startDateTime?.toDate();
+    if (startDateTime && startDateTime < now) {
+      throw new TicketError('Event has already started', 'ticket/event-started');
+    }
+
+    // Check if event has reached capacity
+    const capacity = eventData.capacity || 0;
+    if (capacity > 0) {
+      const ticketsSnapshot = await this.firestore
+        .collection(this.ticketsCollection)
+        .where('eventId', '==', eventId)
+        .where('status', '==', TicketStatus.SOLD)
+        .get();
+
+      if (ticketsSnapshot.size >= capacity) {
+        throw new TicketError('Event has reached capacity', 'ticket/event-full');
+      }
+    }
+
+    // Check if organizer's account is active
+    const organizerDoc = await this.firestore.collection('users').doc(organizerId).get();
+    if (!organizerDoc.exists) {
+      throw new TicketError('Organizer account not found', 'ticket/organizer-not-found');
+    }
+
+    const organizerData = organizerDoc.data()!;
+    if (organizerData.disabled || !organizerData.emailVerified) {
+      throw new TicketError('Organizer account is not active', 'ticket/organizer-inactive');
     }
   }
 
