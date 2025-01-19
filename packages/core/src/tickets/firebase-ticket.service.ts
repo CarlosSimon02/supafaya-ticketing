@@ -22,6 +22,7 @@ import { IPaymentService, PaymentStatus } from '../payments';
 export class FirebaseTicketService implements ITicketService {
   private readonly ticketTypesCollection = 'ticketTypes';
   private readonly ticketsCollection = 'tickets';
+  private readonly eventsCollection = 'events';
   private readonly reservationExpiryMinutes = 15; // 15 minutes to complete purchase
 
   constructor(
@@ -71,8 +72,22 @@ export class FirebaseTicketService implements ITicketService {
     });
   }
 
+  private async verifyOrganizerOwnsEvent(organizerId: string, eventId: string): Promise<void> {
+    const eventDoc = await this.firestore.collection(this.eventsCollection).doc(eventId).get();
+    
+    if (!eventDoc.exists) {
+      throw new TicketError('Event not found', 'ticket/event-not-found');
+    }
+
+    if (eventDoc.data()?.organizerId !== organizerId) {
+      throw new TicketError('Unauthorized: Not the event organizer', 'ticket/unauthorized');
+    }
+  }
+
   async createTicketType(organizerId: string, request: CreateTicketTypeRequest): Promise<TicketType> {
     try {
+      await this.verifyOrganizerOwnsEvent(organizerId, request.eventId);
+
       const now = Timestamp.now();
       const ticketTypeData = {
         ...request,
@@ -106,7 +121,7 @@ export class FirebaseTicketService implements ITicketService {
       const doc = await this.getTicketTypeDoc(request.id);
       const ticketType = this.convertToTicketType(doc);
 
-      // TODO: Verify organizer owns the event
+      await this.verifyOrganizerOwnsEvent(organizerId, ticketType.eventId);
 
       const updateData = {
         ...request,
@@ -128,7 +143,9 @@ export class FirebaseTicketService implements ITicketService {
   async deleteTicketType(organizerId: string, ticketTypeId: string): Promise<void> {
     try {
       const doc = await this.getTicketTypeDoc(ticketTypeId);
-      // TODO: Verify organizer owns the event
+      const ticketType = this.convertToTicketType(doc);
+      
+      await this.verifyOrganizerOwnsEvent(organizerId, ticketType.eventId);
       await doc.ref.delete();
     } catch (error: any) {
       if (error instanceof TicketError) throw error;
@@ -340,7 +357,7 @@ export class FirebaseTicketService implements ITicketService {
       const doc = await this.getTicketDoc(ticketId);
       const ticket = this.convertToTicket(doc);
 
-      // TODO: Verify organizer owns the event
+      await this.verifyOrganizerOwnsEvent(organizerId, ticket.eventId);
 
       if (!ticket.approvalStatus || ticket.approvalStatus !== TicketApprovalStatus.PENDING) {
         throw new TicketError('Ticket is not pending approval', 'ticket/invalid-status');
@@ -363,7 +380,7 @@ export class FirebaseTicketService implements ITicketService {
       const doc = await this.getTicketDoc(ticketId);
       const ticket = this.convertToTicket(doc);
 
-      // TODO: Verify organizer owns the event
+      await this.verifyOrganizerOwnsEvent(organizerId, ticket.eventId);
 
       if (!ticket.approvalStatus || ticket.approvalStatus !== TicketApprovalStatus.PENDING) {
         throw new TicketError('Ticket is not pending approval', 'ticket/invalid-status');
