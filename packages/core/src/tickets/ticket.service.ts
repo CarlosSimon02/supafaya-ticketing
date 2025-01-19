@@ -17,8 +17,8 @@ export interface ITicketService {
   listEventTicketTypes(eventId: string): Promise<TicketType[]>;
   
   // Ticket Purchase Flow
-  reserveTickets(customerId: string, request: ReserveTicketRequest): Promise<Ticket[]>;
-  purchaseTickets(customerId: string, request: PurchaseTicketRequest): Promise<Ticket[]>;
+  reserveTickets(customerId: string, request: ReserveTicketRequest, ip: string): Promise<Ticket[]>;
+  purchaseTickets(customerId: string, request: PurchaseTicketRequest, ip: string): Promise<Ticket[]>;
   cancelReservation(customerId: string, reservationId: string): Promise<void>;
   
   // Ticket Management
@@ -47,4 +47,7 @@ export interface ITicketService {
   
   // Reservation Management
   cleanupExpiredReservations(): Promise<void>;
+  
+  // Payment Webhook
+  handlePaymentWebhook(paymentId: string, status: string): Promise<void>;
 } 
