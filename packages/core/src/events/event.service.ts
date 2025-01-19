@@ -2,7 +2,11 @@ import {
   Event, 
   CreateEventRequest, 
   UpdateEventRequest, 
-  EventSearchParams 
+  EventSearchParams,
+  EventParticipation,
+  EventParticipationType,
+  EventStats,
+  UserEventHistory
 } from './types';
 
 export interface IEventService {
@@ -18,6 +22,7 @@ export interface IEventService {
   searchEvents(query: string, params?: EventSearchParams): Promise<Event[]>;
   
   // Event Stats
+  getEventStats(eventId: string): Promise<EventStats>;
   getEventAttendeeCount(eventId: string): Promise<number>;
   getEventCapacityStatus(eventId: string): Promise<{
     total: number;
@@ -32,4 +37,21 @@ export interface IEventService {
   // Event Access
   isEventVisible(eventId: string, userId?: string): Promise<boolean>;
   canUserAccessEvent(eventId: string, userId: string): Promise<boolean>;
+
+  // Event Participation
+  registerForEvent(userId: string, eventId: string, type: EventParticipationType): Promise<EventParticipation>;
+  cancelParticipation(userId: string, eventId: string): Promise<void>;
+  checkInParticipant(organizerId: string, eventId: string, userId: string): Promise<EventParticipation>;
+  markNoShow(organizerId: string, eventId: string, userId: string): Promise<EventParticipation>;
+  
+  // User Event History
+  getUserEventHistory(userId: string): Promise<UserEventHistory>;
+  listEventParticipants(eventId: string): Promise<EventParticipation[]>;
+  getParticipation(eventId: string, userId: string): Promise<EventParticipation | null>;
+  
+  // Waitlist Management
+  joinWaitlist(userId: string, eventId: string): Promise<EventParticipation>;
+  removeFromWaitlist(userId: string, eventId: string): Promise<void>;
+  getWaitlistPosition(userId: string, eventId: string): Promise<number>;
+  promoteFromWaitlist(organizerId: string, eventId: string, userId: string): Promise<EventParticipation>;
 } 
